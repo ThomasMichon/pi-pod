@@ -114,34 +114,34 @@ class Emulator:
     # -- Mode 0: Mode Switching --
 
     def _handle_mode_switch(self, pkt: Packet):
-        cmd = pkt.command
-        if cmd == 0x0001:
-            # Switch to mode N (param byte is the mode)
-            # In a 3-byte payload: mode=0x00, cmd1=0x01, cmd2=<target_mode>
-            # But actually cmd is 0x0001 and params[0] is target mode
-            # Wait - looking at protocol: 0x01 0x04 means switch to mode 4
-            # So cmd1=0x01, cmd2=target_mode. command = 0x01XX
-            # Let me re-check: the packet is mode=0x00, data=[0x01, 0x04]
-            # so cmd = 0x0104. Hmm, but that doesn't match our parsing which
-            # is cmd = (buf[1] << 8) | buf[2].
-            # Actually for mode switching: mode=0x00, then the next bytes
-            # are the command. 0x01 is "switch mode" and the parameter is
-            # the target mode. So cmd=0x01, param=target_mode.
-            # But our parser puts buf[1]=0x01, buf[2]=target_mode as command.
-            # So command = 0x0104 for "switch to mode 4".
+        if pkt.cmd1 == 0x01:
+            # Switch to mode N: cmd1=0x01, cmd2=target_mode
+            # e.g. 0x01 0x04 = switch to AiR (Advanced Remote)
             target_mode = pkt.cmd2
             log.info("Mode switch request → mode 0x%02X", target_mode)
             self.current_mode = target_mode
             # Respond: mode 0x00, cmd 0x04, param = current mode
             self._send_raw(Mode.SWITCHING, 0x00, 0x04,
                            bytes([target_mode]))
-        elif cmd == 0x0003 or pkt.cmd1 == 0x03:
-            # Get current mode status
+        elif pkt.cmd1 == 0x03 or pkt.command == 0x03:
+            # Get current mode status (can be 1-byte or 2-byte command)
             log.info("Mode status request")
             self._send_raw(Mode.SWITCHING, 0x00, 0x04,
                            bytes([self.current_mode]))
+        elif pkt.cmd1 == 0x05 or pkt.command == 0x05:
+            # Alternate "switch to AiR mode"
+            log.info("Mode switch (alt) → AiR")
+            self.current_mode = Mode.ADVANCED_REMOTE
+            self._send_raw(Mode.SWITCHING, 0x00, 0x04,
+                           bytes([Mode.ADVANCED_REMOTE]))
+        elif pkt.cmd1 == 0x06 or pkt.command == 0x06:
+            # Alternate "switch to Simple Remote"
+            log.info("Mode switch (alt) → Simple Remote")
+            self.current_mode = Mode.SIMPLE_REMOTE
+            self._send_raw(Mode.SWITCHING, 0x00, 0x04,
+                           bytes([Mode.SIMPLE_REMOTE]))
         else:
-            log.info("Unknown mode-switch command: 0x%04X", cmd)
+            log.info("Unknown mode-switch command: 0x%04X", pkt.command)
 
     # -- Mode 4: Advanced Remote --
 
