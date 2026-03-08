@@ -1,0 +1,18 @@
+[Unit]
+Description=pi-pod iPod Emulator
+After=bluetooth.service pulseaudio.service
+Wants=bluetooth.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -m pipod --port /dev/serial0 --baud 19200 --name iPod
+WorkingDirectory=/home/btuser/pi-pod
+Restart=on-failure
+RestartSec=5
+
+# Run in the btuser environment so we can access the session D-Bus
+# for MPRIS control of Bluetooth playback
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus
+
+[Install]
+WantedBy=default.target
