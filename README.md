@@ -20,6 +20,10 @@ Built to work with the [Poolside Factory 30-Pin Dock Adapter](https://poolsidefa
 
 ## Installation
 
+See [DEPLOYMENT.md](DEPLOYMENT.md) for full deployment instructions, including prerequisites, troubleshooting, and redeployment procedures.
+
+Quick start:
+
 1. Copy this project to the Pi (e.g. via `scp`):
    ```bash
    scp -r pi-pod/ piuser@yourpi:~/pi-pod/
@@ -33,7 +37,12 @@ Built to work with the [Poolside Factory 30-Pin Dock Adapter](https://poolsidefa
    ./install.sh
    ```
 
-3. The daemon starts automatically and survives reboots.
+3. Restart the btuser session (needed once for serial port permissions):
+   ```bash
+   sudo systemctl restart user@1001.service
+   ```
+
+4. The daemon starts automatically and survives reboots.
 
 ## Usage
 

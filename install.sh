@@ -11,6 +11,10 @@ echo "Installing Python dependencies..."
 sudo apt-get install -y python3-serial python3-dbus 2>/dev/null || true
 pip3 install --user -r "$SCRIPT_DIR/requirements.txt" 2>/dev/null || true
 
+# Ensure btuser has serial port access
+echo "Adding btuser to dialout group..."
+sudo usermod -aG dialout btuser
+
 # Copy project to btuser home
 echo "Copying project files..."
 sudo mkdir -p /home/btuser/pi-pod
