@@ -101,6 +101,43 @@ The Apple Accessory Protocol (iAP) uses 19200 baud 8N1 serial with this packet f
 
 See [ipodlinux.org AAP docs](http://ipodlinux.org/wiki/Apple_Accessory_Protocol) for the full protocol specification.
 
+## Compatibility
+
+### Works with (passive 30-pin docks)
+
+The Poolside Factory adapter routes analog line-out audio and UART serial to the 30-pin connector. pi-pod speaks iAP over serial to satisfy accessories that require iPod identification before accepting audio. This works with **passive dock accessories** that take analog audio directly from the 30-pin line-out pins:
+
+- Apple iPod Hi-Fi
+- Bose SoundDock
+- Speaker docks, clock radios, etc.
+
+See the [Poolside Factory product page](https://poolsidefactory.com/products/airplay-audio-streaming-adapter-for-apple-30pin-dock-connector) for a full list of tested devices.
+
+### Does NOT work with (active car iPod adapters)
+
+Many car stereo iPod integrations use an **active adapter box** (CD changer emulator) that sits between the 30-pin connector and the head unit. These adapters typically communicate with the iPod over **USB** (30-pin pins 23/25/27), not serial, and re-encode audio for the car's CD changer bus. The Poolside Factory adapter does not connect USB pins, so these adapters cannot detect the Pi as an iPod.
+
+**Known incompatible:**
+
+| Adapter | Vehicle | Why |
+|---------|---------|-----|
+| Mitsubishi MZ360138EX | 2006-2012 Eclipse (Rockford Fosgate) | CD changer emulator; uses USB to detect/control iPod, no serial communication observed. Shows "E" (Error) on head unit. |
+
+**Symptoms of an incompatible setup:**
+- Car shows "E" or "Error" on the iPod/CD2 input
+- No serial data received by pi-pod (check logs with `--verbose`)
+- Audio pipeline on the Pi is healthy (PulseAudio sink RUNNING, loopback active) but no sound from speakers
+
+**How to tell if your car adapter is compatible:**
+1. Run pi-pod with `--verbose` and check if any serial data arrives from the car
+2. If you see iAP packets, the adapter uses serial and pi-pod can work
+3. If no data arrives, the adapter likely uses USB — pi-pod cannot help
+
+**Alternatives for incompatible cars:**
+- Bypass the iPod adapter entirely with an AUX input adapter or FM transmitter
+- Use a Bluetooth-to-AUX adapter connected to the head unit's AUX input (if available)
+- Replace the head unit with one that has Bluetooth built in
+
 ## License
 
 MIT
