@@ -1,81 +1,52 @@
 # Deployment Guide
 
-## Prerequisites
+## Fresh Install (New Pi)
 
-Before deploying pi-pod, your Raspberry Pi Zero W must have:
+If you're starting from a fresh Raspberry Pi OS Lite image, `setup.sh` automates the entire configuration — Bluetooth audio, HiFiBerry DAC, UART serial, and pi-pod installation.
 
-1. **Bluetooth audio streaming configured** per the [Poolside Factory Bluetooth tutorial](https://poolsidefactory.com/blogs/how-tos/how-to-setup-bluetooth-streaming-for-a-raspberry-pi-with-the-30-pin-dock-adapter-from-poolside-factory)
-2. **UART serial enabled** (console disabled) per the [Poolside Factory UART tutorial](https://poolsidefactory.com/blogs/how-tos/raspberry-pi-zero-w-to-apple-30-pin-dock-uart-connection)
-3. A `btuser` account (UID 1001) already running PulseAudio and `mpris-proxy`
+### 1. Image the SD card
 
-### Verify Prerequisites
+Use [Raspberry Pi Imager](https://www.raspberrypi.com/software/) to write **Raspberry Pi OS Lite (32-bit)** to your SD card. In the imager settings, configure:
+- WiFi credentials
+- SSH enabled
+- Username and password (e.g. `piuser`)
+
+### 2. Copy the project to the Pi
 
 ```bash
-# UART available and not used by console
-ls -la /dev/serial0          # should point to ttyS0
-grep 'console=serial' /boot/firmware/cmdline.txt  # should return nothing
-
-# HiFiBerry DAC overlay active
-grep 'dtoverlay=hifiberry-dac' /boot/firmware/config.txt
-
-# btuser session running with PulseAudio
-sudo systemctl status user@1001.service
+ssh <user>@<hostname> "mkdir -p ~/pi-pod"
+scp -r pipod/ requirements.txt install.sh setup.sh systemd/ <user>@<hostname>:~/pi-pod/
 ```
 
-## Deploying from a Development Machine
-
-### 1. Copy files to the Pi
+### 3. Run the setup script
 
 ```bash
-scp -r pipod/ requirements.txt install.sh systemd/ piuser@yourpi:~/pi-pod/
-```
-
-> **Note:** You must create `~/pi-pod/` on the Pi first if it doesn't exist:
-> ```bash
-> ssh piuser@yourpi "mkdir -p ~/pi-pod"
-> ```
-
-### 2. Run the installer
-
-```bash
-ssh piuser@yourpi
+ssh <user>@<hostname>
 cd ~/pi-pod
-chmod +x install.sh
-sudo ./install.sh
+chmod +x setup.sh
+sudo ./setup.sh --hostname yourpi --btuser-password <password>
 ```
 
-The installer will:
-- Install `python3-serial` and `python3-dbus` via apt
-- Add `btuser` to the `dialout` group (required for `/dev/serial0` access)
-- Copy the project to `/home/btuser/pi-pod/`
-- Install and enable a systemd user service for `btuser`
+The script will:
+- Update the system and install all packages
+- Create `btuser` with PulseAudio and Bluetooth agent
+- Configure the HiFiBerry DAC and UART serial
+- Install the pi-pod iPod emulator service
+- Reboot automatically
 
-### 3. Restart the btuser session
+After reboot, Bluetooth is finalized by a one-shot service that then removes itself.
 
-The `dialout` group membership requires a session restart to take effect. This is **not** handled automatically by the installer because it would kill the running PulseAudio and Bluetooth audio.
+### 4. Pair your phone
 
-```bash
-sudo systemctl restart user@1001.service
-```
+After reboot, pair your phone via Bluetooth. The Pi appears as the hostname you chose (e.g. "yourpi"). No PIN required.
 
-> **⚠️ This will briefly interrupt Bluetooth audio.** Any connected phone will need to reconnect or will reconnect automatically after a few seconds.
+### 5. (Optional) Enable read-only filesystem
 
-After restarting, the pipod service starts automatically:
+See the [Read-Only Filesystem](#read-only-filesystem) section below. Only do this after verifying audio works.
 
-```bash
-sudo -u btuser XDG_RUNTIME_DIR=/run/user/1001 systemctl --user status pipod
-```
+## Redeploying pi-pod (Already Configured Pi)
 
-You should see:
-```
-● pipod.service - pi-pod iPod Emulator
-     Active: active (running)
-...
-pipod INFO Serial port /dev/serial0 opened at 19200 baud
-pipod INFO Emulator running — waiting for commands from car stereo
-```
-
-## Redeploying After Code Changes
+If the Pi is already set up and you just need to update pi-pod code:
 
 ```bash
 # From your development machine:
@@ -89,6 +60,75 @@ sudo -u btuser XDG_RUNTIME_DIR=/run/user/1001 systemctl --user restart pipod
 ```
 
 No session restart needed for code-only changes — just restart the service.
+
+> **If the Pi is in read-only mode**, you must disable overlay first.
+> See [Read-Only Filesystem](#read-only-filesystem) below.
+
+## Re-running Full Setup (install.sh)
+
+If `btuser` and Bluetooth are already configured but you need to reinstall the
+pi-pod service (e.g. after reimaging), use `install.sh` instead of `setup.sh`:
+
+```bash
+cd ~/pi-pod
+chmod +x install.sh
+sudo ./install.sh
+sudo systemctl restart user@1001.service  # needed once for dialout group
+```
+
+## Read-Only Filesystem
+
+Enabling a read-only root filesystem protects the SD card from corruption
+caused by sudden power loss (e.g. when the car ignition turns off).
+
+### How it works
+
+`raspi-config` enables OverlayFS, which mounts the root partition read-only
+with a tmpfs (RAM) upper layer. All runtime writes go to RAM and are discarded
+on reboot. The SD card is never written to during normal operation.
+
+### When to enable
+
+**After all setup AND phone pairing are complete.** Bluetooth pairing data
+lives in `/var/lib/bluetooth/` on the root filesystem. With overlay enabled,
+new pairings are lost on reboot.
+
+### Enabling read-only mode
+
+```bash
+# Option A: During initial setup
+sudo ./setup.sh --hostname yourpi --btuser-password <pw> --enable-readonly
+
+# Option B: After setup, manually
+sudo raspi-config nonint enable_overlayfs
+sudo reboot
+```
+
+### What works in read-only mode
+
+| Feature | Status | Why |
+|---------|--------|-----|
+| Bluetooth audio from paired devices | ✅ | Pairing data already on disk |
+| pi-pod iPod emulator | ✅ | No disk writes |
+| PulseAudio | ✅ | Runtime state in /run (tmpfs) |
+| WiFi / SSH | ✅ | DHCP lease in tmpfs |
+| systemd journal | ✅ | Writes to /run/log/journal (tmpfs) |
+| Pairing NEW Bluetooth devices | ❌ | Lost on reboot |
+| apt install / system updates | ❌ | Lost on reboot |
+| Config file changes | ❌ | Lost on reboot |
+
+### Disabling read-only mode (to make changes)
+
+```bash
+sudo raspi-config nonint disable_overlayfs
+sudo reboot
+
+# Make changes (pair new phone, update pi-pod, apt upgrade, etc.)
+
+# Re-enable when done
+sudo raspi-config nonint enable_overlayfs
+sudo reboot
+```
 
 ## Troubleshooting
 
