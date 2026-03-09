@@ -2,14 +2,21 @@
 
 An iPod Accessory Protocol (iAP) emulator for Raspberry Pi Zero W that lets it masquerade as an iPod over a 30-pin dock connector.
 
-Built to work with the [Poolside Factory 30-Pin Dock Adapter](https://poolsidefactory.com/products/airplay-audio-streaming-adapter-for-apple-30pin-dock-connector), which passively bridges the Pi's UART and I2S audio to the 30-pin connector. This project provides the missing protocol layer so that car stereos and other iPod accessories that require iAP communication will recognize the Pi as an iPod.
+Built to work with the [Poolside Factory 30-Pin Dock Adapter](https://poolsidefactory.com/products/airplay-audio-streaming-adapter-for-apple-30pin-dock-connector), which bridges the Pi's UART, I2S audio, and (if USB test pads are connected) USB to the 30-pin connector. This project provides the missing protocol layer so that car stereos and other iPod accessories that require iAP communication will recognize the Pi as an iPod.
 
 ## What It Does
 
-- **Speaks iAP** over serial (`/dev/serial0` at 19200 baud) to convince a car stereo (or other 30-pin dock accessory) that an iPod is connected
-- **Bridges playback controls** — play/pause, skip, etc. from the car stereo are forwarded to a Bluetooth-connected phone via MPRIS D-Bus → AVRCP
-- **Provides track metadata** — title, artist, album from the Bluetooth source are reported to the car stereo
+### Serial iAP (for passive speaker docks)
+- **Speaks iAP** over serial (`/dev/serial0` at 19200 baud) to convince accessories that an iPod is connected
+- **Bridges playback controls** — play/pause, skip, etc. from the accessory are forwarded to a Bluetooth-connected phone via MPRIS D-Bus → AVRCP
+- **Provides track metadata** — title, artist, album from the Bluetooth source are reported to the accessory
 - **Handles polling** — responds to elapsed-time polling requests
+
+### USB iPod Gadget (for car stereos and active adapters)
+- **Presents as an iPod over USB** using the Linux USB gadget framework (`dwc2` + [ipod-gadget](https://github.com/oandrew/ipod-gadget) kernel modules)
+- **Streams digital audio** via USB Audio Class 1 (UAC1) — 44.1kHz 16-bit stereo
+- **Handles iAP over USB HID** using the [ipod](https://github.com/oandrew/ipod) Go client via `/dev/iap0`
+- **Requires USB data path** — the adapter board must route 30-pin USB pins (23/25) to the Pi's USB test pads (PP22/PP23). See [USB Connectivity](#usb-connectivity) below.
 
 ## Prerequisites
 
@@ -70,6 +77,8 @@ sudo -u btuser XDG_RUNTIME_DIR=/run/user/1001 journalctl --user -u pipod -f
 
 ## How It Works
 
+### Serial iAP (passive docks)
+
 ```
 Phone (Pixel 7a)
   │ Bluetooth A2DP (audio) + AVRCP (controls)
@@ -78,8 +87,24 @@ Raspberry Pi Zero W
   ├── PulseAudio ← Bluetooth audio → HiFiBerry DAC → 30-pin audio pins
   └── pi-pod daemon
         ├── MPRIS D-Bus ← mpris-proxy ← AVRCP (playback control)
-        └── UART serial → 30-pin serial pins → Car Stereo
+        └── UART serial → 30-pin serial pins → Speaker Dock
                           (iAP protocol)
+```
+
+### USB iPod Gadget (car stereos / active adapters)
+
+```
+Phone (Pixel 7a)
+  │ Bluetooth A2DP (audio) + AVRCP (controls)
+  ▼
+Raspberry Pi Zero W
+  ├── PulseAudio ← Bluetooth audio → ALSA "iPodUSB" sink
+  │                                    │
+  │                                    ▼ (USB Audio Class 1)
+  ├── dwc2 gadget ─── USB D+/D- ──→ 30-pin pins 23/25 → Car Stereo
+  │     └── g_ipod kernel modules
+  └── ipod-usb client
+        └── iAP over HID ← /dev/iap0
 ```
 
 1. The car stereo sends iAP commands over the 30-pin serial connection
@@ -113,11 +138,15 @@ The Poolside Factory adapter routes analog line-out audio and UART serial to the
 
 See the [Poolside Factory product page](https://poolsidefactory.com/products/airplay-audio-streaming-adapter-for-apple-30pin-dock-connector) for a full list of tested devices.
 
-### Does NOT work with (active car iPod adapters)
+### Does NOT work with (active car iPod adapters) — without USB
 
-Many car stereo iPod integrations use an **active adapter box** (CD changer emulator) that sits between the 30-pin connector and the head unit. These adapters typically communicate with the iPod over **USB** (30-pin pins 23/25/27), not serial, and re-encode audio for the car's CD changer bus. The Poolside Factory adapter does not connect USB pins, so these adapters cannot detect the Pi as an iPod.
+Many car stereo iPod integrations use an **active adapter box** (CD changer emulator) that sits between the 30-pin connector and the head unit. These adapters typically communicate with the iPod over **USB** (30-pin pins 23/25/27), not serial, and re-encode audio for the car's CD changer bus.
 
-**Known incompatible:**
+**If the adapter board routes USB** (30-pin pins 23/25 → Pi test pads PP22/PP23), the USB iPod Gadget approach should work. See [USB Connectivity](#usb-connectivity).
+
+**If the adapter board does NOT route USB** (GPIO header connection only), these adapters cannot detect the Pi.
+
+**Known incompatible (without USB routing):**
 
 | Adapter | Vehicle | Why |
 |---------|---------|-----|
@@ -131,7 +160,23 @@ Many car stereo iPod integrations use an **active adapter box** (CD changer emul
 **How to tell if your car adapter is compatible:**
 1. Run pi-pod with `--verbose` and check if any serial data arrives from the car
 2. If you see iAP packets, the adapter uses serial and pi-pod can work
-3. If no data arrives, the adapter likely uses USB — pi-pod cannot help
+3. If no data arrives, the adapter likely uses USB — try the USB iPod Gadget approach
+
+## USB Connectivity
+
+The USB iPod Gadget requires a physical USB data path between the Pi and the 30-pin connector.
+
+**The Pi Zero W's USB data lines are NOT on the GPIO header.** They are only available on:
+- The **micro USB OTG port** (the port labeled "USB", not "PWR")
+- **Test pads** on the underside of the Pi: **PP22** (D+) and **PP23** (D-)
+
+For the USB gadget to reach the 30-pin connector, the adapter board must route 30-pin pins 23/25 to these test pads — typically via pogo pins or solder connections.
+
+**To verify USB connectivity:** use a multimeter in continuity mode:
+- 30-pin pin 23 ↔ Pi test pad PP22 (USB D+)
+- 30-pin pin 25 ↔ Pi test pad PP23 (USB D-)
+
+If there's no continuity, you can solder two jumper wires from PP22/PP23 to the adapter board's traces for 30-pin pins 23/25.
 
 **Alternatives for incompatible cars:**
 - Bypass the iPod adapter entirely with an AUX input adapter or FM transmitter

@@ -132,6 +132,112 @@ sudo reboot
 
 ## Troubleshooting
 
+### USB iPod Gadget Setup
+
+If your car stereo uses USB (not serial) to communicate with iPods, you can configure the Pi as a USB iPod gadget. This requires the adapter board to route 30-pin USB pins to the Pi's USB test pads — see [USB Connectivity](README.md#usb-connectivity) in the README.
+
+#### Prerequisites
+
+- Kernel headers installed: `sudo apt install raspberrypi-kernel-headers`
+- Build tools: `gcc`, `make`, `git`
+- Go compiler (for cross-compiling the client on your dev machine)
+
+#### Build and install kernel modules
+
+```bash
+# On the Pi:
+git clone https://github.com/oandrew/ipod-gadget.git
+cd ipod-gadget/gadget
+make
+sudo mkdir -p /lib/modules/$(uname -r)/extra
+sudo cp g_ipod_hid.ko g_ipod_audio.ko g_ipod_gadget.ko /lib/modules/$(uname -r)/extra/
+sudo depmod -a
+```
+
+#### Cross-compile the Go client
+
+```bash
+# On your dev machine (requires Go):
+git clone https://github.com/oandrew/ipod.git ipod-client
+cd ipod-client
+GOOS=linux GOARCH=arm GOARM=6 go build -o ipod-arm6 github.com/oandrew/ipod/cmd/ipod
+
+# Copy to Pi:
+scp ipod-arm6 <user>@<hostname>:/home/<user>/
+ssh <user>@<hostname> "sudo cp ~/ipod-arm6 /usr/local/bin/ipod-usb && sudo chmod +x /usr/local/bin/ipod-usb"
+```
+
+#### Configure dwc2 peripheral mode
+
+Edit `/boot/firmware/config.txt`:
+```
+# Under the [all] section:
+dtoverlay=dwc2,dr_mode=peripheral
+```
+
+Remove or comment out `otg_mode=1` if present (usually under `[cm4]`).
+
+Add module auto-loading:
+```bash
+echo -e "libcomposite\ng_ipod_hid\ng_ipod_audio\ng_ipod_gadget" | sudo tee /etc/modules-load.d/ipod-gadget.conf
+```
+
+#### Create the systemd service
+
+```bash
+sudo tee /etc/systemd/system/ipod-gadget.service > /dev/null << 'EOF'
+[Unit]
+Description=iPod USB Gadget
+After=multi-user.target
+Wants=bluetooth.service
+
+[Service]
+Type=simple
+ExecStartPre=/sbin/modprobe libcomposite
+ExecStartPre=/sbin/insmod /lib/modules/%v/extra/g_ipod_hid.ko
+ExecStartPre=/sbin/insmod /lib/modules/%v/extra/g_ipod_audio.ko
+ExecStartPre=/sbin/insmod /lib/modules/%v/extra/g_ipod_gadget.ko
+ExecStart=/usr/local/bin/ipod-usb -d serve /dev/iap0
+ExecStopPost=-/sbin/rmmod g_ipod_gadget g_ipod_audio g_ipod_hid
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable ipod-gadget
+sudo reboot
+```
+
+#### Verify after reboot
+
+```bash
+# Check USB device controller
+ls /sys/class/udc/          # Should show 20980000.usb
+# Check iAP device
+ls -la /dev/iap0            # Should exist
+# Check ALSA card
+aplay -l | grep iPodUSB     # Should show iPod PCM card
+# Check service
+systemctl status ipod-gadget
+```
+
+#### Bridge Bluetooth audio to iPodUSB
+
+Once the iPodUSB ALSA card is available, route Bluetooth audio to it via PulseAudio:
+
+```bash
+# As btuser:
+pactl load-module module-alsa-sink device=plughw:CARD=iPodUSB,DEV=0 sink_name=ipod_usb
+pactl set-default-sink ipod_usb
+```
+
+> **Note:** The kernel modules must be rebuilt whenever the kernel is updated (`sudo apt upgrade`). Re-run the build steps in the `ipod-gadget/gadget` directory after a kernel update.
+
+## Troubleshooting
+
 ### Viewing logs
 
 ```bash
