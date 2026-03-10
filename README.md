@@ -170,15 +170,22 @@ The USB iPod Gadget requires a physical USB data path between the Pi and the 30-
 - The **micro USB OTG port** (the port labeled "USB", not "PWR")
 - **Test pads** on the underside of the Pi: **PP22** (D+) and **PP23** (D-)
 
-For the USB gadget to reach the 30-pin connector, the adapter board must route 30-pin pins 23/25 to these test pads — typically via pogo pins or solder connections.
+### Poolside Factory adapter board
 
-**To verify USB connectivity:** use a multimeter in continuity mode:
-- 30-pin pin 23 ↔ Pi test pad PP22 (USB D+)
-- 30-pin pin 25 ↔ Pi test pad PP23 (USB D-)
+The adapter board has **unpopulated pads** for a USB Micro female port and associated resistors. These were added by the board's creator for future/experimental USB support but are not yet officially documented or supported. When populated, a short USB Micro cable would bridge the Pi's USB OTG port to the adapter board, which then routes the signal to 30-pin USB pins 23/25.
 
-If there's no continuity, you can solder two jumper wires from PP22/PP23 to the adapter board's traces for 30-pin pins 23/25.
+**As of early 2026, this USB feature is experimental.** Contact Poolside Factory at info@poolsidefactory.com for guidance before attempting either option:
 
-**Alternatives for incompatible cars:**
+1. **Surface-mount the USB port and resistors** to the marked pads on the adapter board
+2. **Jumper wires** from the Pi's USB test pads (PP22/PP23) through appropriate resistors to the adapter board's untapped USB connector pads
+
+Once the USB data path is physically connected, the `dwc2` peripheral mode and `ipod-gadget` service handle everything on the software side.
+
+**To verify USB connectivity after hardware modification:** use a multimeter in continuity mode:
+- 30-pin pin 23 ↔ Pi USB OTG D+ (or test pad PP22)
+- 30-pin pin 25 ↔ Pi USB OTG D- (or test pad PP23)
+
+**Alternatives for incompatible cars (if USB mod is not feasible):**
 - Bypass the iPod adapter entirely with an AUX input adapter or FM transmitter
 - Use a Bluetooth-to-AUX adapter connected to the head unit's AUX input (if available)
 - Replace the head unit with one that has Bluetooth built in
